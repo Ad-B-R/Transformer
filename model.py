@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import math
 
 class InputEmbedding(nn.Module):
     def __init__(self, d_model: int, vocab_size: int, ):
@@ -9,7 +10,7 @@ class InputEmbedding(nn.Module):
         self.embedding = nn.Embedding(vocab_size, d_model)
 
     def forward(self, x):
-        return self.embedding(x)*torch.sqrt(self.d_model)
+        return self.embedding(x)*math.sqrt(self.d_model)
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, seq_len: int, dropout: float):
@@ -60,7 +61,7 @@ class FeedForwardNetwork(nn.Module):
     def forward(self, x):
         return self.fnn2(self.dropout(torch.relu(self.fnn1(x))))
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model: int, h:int, dropout:int):
+    def __init__(self, d_model: int, h:int, dropout:float):
         super().__init__()
         self.d_model = d_model
         self.h = h
@@ -76,28 +77,29 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
     
     @staticmethod
-    def attention(self, query, key, value, mask, dropout: nn.Dropout):
+    def attention(query, key, value, mask, dropout: nn.Dropout):
         d_k = query.shape[-1]
 
         # (batch, seq_len, d_k) -> (batch, seq_len, seq_len)
-        attention_scores = ((query @ key.transpose(-2,-1))/torch.sqrt(d_k))
+        attention_scores = ((query @ key.transpose(-2,-1))/math.sqrt(d_k))
         if mask is not None:
             attention_scores.masked_fill_(mask==0, -1e9)
         attention_scores = attention_scores.softmax(dim=-1) # batch, h, seq_len, seq_len
         if dropout is not None:
             attention_scores = dropout(attention_scores)
         
-        return (attention_scores @ key), attention_scores
+        return (attention_scores @ value), attention_scores
 
 
     def forward(self, k, q, v, mask):
-        # batch x seq len x d_model
+        # batch, seq len, d_model
         query = self.Wq(q)
-        value = self.Wq(v)
-        key = self.Wq(k)
+        value = self.Wv(v)
+        key = self.Wk(k)
         # batch, seq_len, h, d_k -> batch, h, seq_len, d_k
-        query = query.view(query.shape[0], query.shape[1], self.h, self.d_k).transpose(1,2  )
+        query = query.view(query.shape[0], query.shape[1], self.h, self.d_k).transpose(1,2)
         key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).transpose(1,2)
+        # key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).permute([0,2,1,3])
         value = value.view(value.shape[0], value.shape[1], self.h, self.d_k).transpose(1,2)
 
         # (batch, h, seq_len, d_k) 
@@ -112,7 +114,7 @@ class ResidualConnections(nn.Module):
     def __init__(self, dropout: float):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.Norm = LayerNorm()
+        self.norm = LayerNorm()
     
     def forward(self, x, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
@@ -127,7 +129,7 @@ class EncoderBlock(nn.Module):
         self.residual_connections = nn.ModuleList([ResidualConnections(dropout) for _ in range(2)])
 
     def forward(self, x, src_mask):
-        X = self.residual_connections[0](x, 
+        x   = self.residual_connections[0](x, 
             lambda x: self.self_attention_block(x, x, x, src_mask))
         x = self.residual_connections[1](x, self.feed_foward_network)
         return x
