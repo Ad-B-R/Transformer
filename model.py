@@ -129,10 +129,14 @@ class EncoderBlock(nn.Module):
         self.residual_connections = nn.ModuleList([ResidualConnections(dropout) for _ in range(2)])
 
     def forward(self, x, src_mask):
+        # Residual_connections stores residual blocks, 
+        # hence following means ResidualConnections.forward(x, sublayer)
         x   = self.residual_connections[0](x, 
             lambda x: self.self_attention_block(x, x, x, src_mask))
-        x = self.residual_connections[1](x, self.feed_foward_network)
+        # residual_connections__Call__() expects only one input function, hence we do this
+        x = self.residual_connections[1](x, self.feed_foward_network(x))
         return x
+    
 class Encoder(nn.Module):
     def __init__(self, layers: nn.ModuleList):
         super().__init__()
@@ -143,3 +147,44 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
+
+class DecoderBlock(nn.Module):
+    def __init__(self, self_attention_block: MultiHeadAttention, cross_attention_block: MultiHeadAttention, 
+                feed_forward_block: FeedForwardNetwork, dropout:float):
+        super().__init__()
+        self.self_attention_block = self_attention_block
+        self.cross_attention_block = cross_attention_block
+        self.feed_forward_network = feed_forward_block
+        self.dropout = dropout
+        
+        self.residual_connections = nn.ModuleList([ResidualConnections(dropout) for _ in range(3)])
+    
+    def forward(self, x, e_x, target_mask, src_mask):
+        x = self.residual_connections[0](x, 
+            lambda x: self.self_attention_block(x, x, x, target_mask))
+        
+        x = self.residual_connections[1](x, 
+            lambda x: self.cross_attention_block(x, e_x, e_x, src_mask))
+        
+        x = self.residual_connections[2](x, self.feed_forward_network(x))
+        return x
+class Decoder(nn.Module):
+    def __init__(self, layers: nn.ModuleList):
+        super().__init__()
+        self.layers = layers
+        self.norm = LayerNorm()
+    
+    def forward(self, x, encoder_mask, src_mask, target_task):
+        for layer in self.layers:
+            x = layer(x, encoder_mask, src_mask, target_task)
+        return self.norm(x)
+    
+class ProjectionLayer(nn.Module):
+    def __init__(self, d_model: int, voab_size: int):
+        super().__init__()
+        self.proj = nn.Linear(d_model, voab_size)
+
+    def forward(self, x):
+        return torch.log_softmax(self.proj(x), dim =-1)
+
+
