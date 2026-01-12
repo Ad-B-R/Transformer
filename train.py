@@ -20,9 +20,12 @@ def get_or_build_tokenizer(config, dataset, lang):
     tokenizer_path = Path(config['tokenizer_file'].format(lang))
     if not Path.exists(tokenizer_path):
         # Maps word it hasnt seen to unknown
-        tokenizer = Tokenizer(WordLevel(unk_token=['UNK'])) 
+        tokenizer = Tokenizer(WordLevel(unk_token="[UNK]")) 
+        # Defining split as whitespace
         tokenizer.pre_tokenizer = Whitespace()
+        # defining a trainer to train with special tokens
         trainer = WordLevelTrainer(special_tokens=["[UNK]", "[PAD]", "[SOS]", "[EOS]"], min_frequency=2)
+        # train the tokenizer
         tokenizer.train_from_iterator(get_all_sentences(dataset, lang), trainer=trainer)
         tokenizer.save(str(tokenizer_path))
     else: 
