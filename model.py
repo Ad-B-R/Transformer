@@ -37,6 +37,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:, :x.shape[1], :] # for different broadcasting purposes
         return self.dropout(x)
+    
 class LayerNorm(nn.Module):
     def __init__(self, eps: float = 10**-6):
         super().__init__()
@@ -60,6 +61,7 @@ class FeedForwardNetwork(nn.Module):
     
     def forward(self, x):
         return self.fnn2(self.dropout(torch.relu(self.fnn1(x))))
+    
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_model: int, h:int, dropout:float):
         super().__init__()
@@ -226,6 +228,7 @@ def build_transformer(src_vocab_size: int, target_vocab_size: int, src_seq_len:i
     target_pos = PositionalEncoding(d_model, target_seq_len, dropout)
 
     encoder_blocks = []
+    # creating the encoder block parameters
     for _ in range(N_blocks):
         encoder_self_attention_block = MultiHeadAttention(d_model, heads, dropout)
         encoder_ffn = FeedForwardNetwork(d_model, d_ff, dropout)
@@ -233,6 +236,7 @@ def build_transformer(src_vocab_size: int, target_vocab_size: int, src_seq_len:i
         encoder_blocks.append(encoder_block)
     
     decoder_blocks = []
+    # creating the decoder block parameters
     for _ in range(N_blocks):
         decoder_self_attention_block = MultiHeadAttention(d_model, heads, dropout)
         decoder_cross_attention_block = MultiHeadAttention(d_model, heads, dropout)
