@@ -1,0 +1,6 @@
+__pycache__
+weights
+tokenizer_en.json
+tokenizer_fr.json
+runs
+test.py
