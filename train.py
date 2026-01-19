@@ -18,6 +18,69 @@ from model import build_transformer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_target, max_len, device):
+    sos_index = tokenizer_target.token_to_id('[SOS]')
+    eos_index = tokenizer_target.token_to_id('[EOS]')
+
+    encoder_output = model.encode(source, source_mask)
+
+    decoder_input = torch.empty(1,1).fill_(sos_index).type_as(source).to(device)
+    while True:
+        if decoder_input.size(1) == max_len:
+            break
+
+        decoder_mask = casual_mask(decoder_input.size(1)).type_as(source).to(device)
+
+        out = model.decode(encoder_output, source_mask, decoder_input, decoder_mask)
+
+        prob = model.proj(out[:,-1])
+        _, next_word = torch.max(prob, dim=1)
+        decoder_input = torch.cat([decoder_input, torch.empty(1,1).type_as(source).fill_(next_word.item()).to(device)], dim=1)
+
+        if next_word == eos_index:
+            break
+
+    return decoder_input.squeeze(0)
+
+def run_validation(model, validation_ds, tokenizer_src, tokenizer_target,
+                   max_len, device, print_msg, global_state, writer, num_examples=2):
+    model.eval()
+    count = 0
+
+    # source_texts = []
+    # expected = []
+    # predicted = []
+
+    console_width = 80
+
+    with torch.no_grad():
+        for batch in validation_ds:
+            count+=1
+            encoder_input = batch['encoder_input'].to(device)
+            encoder_mask = batch['encoder_mask'].to(device)
+            
+            assert encoder_input.size(0) == 1, "Batch must be 1 for validation"
+            model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_src, tokenizer_target, max_len, device)
+
+            source_text = batch['src_target'][0]
+            target_text = batch['target_target'][0]
+            model_out_text = tokenizer_target.decode(model_out.detach().cpu().numpy())\
+            
+            # source_texts.append(source_text)
+            # expected.append(target_text)
+            # predicted.append(model_out_text)
+
+            print_msg('_'*console_width)
+
+            print_msg(f"source: {source_text}")
+            print_msg(f"target: {target_text}")
+            print_msg(f"model: {model_out_text}")
+
+            if count == num_examples:
+                break
+
+    
+
 def get_all_sentences(dataset, lang):
     for item in dataset:
         yield item['translation'][lang]
@@ -57,17 +120,17 @@ def get_dataset(config):
     val_ds = BilungialDataset(val_ds_raw, tokenizer_src, tokenizer_target, 
                                 config['lang_src'], config['lang_target'], config['seq_len'])
     
-    max_len_src = 0
-    max_len_target = 0
+    # max_len_src = 0
+    # max_len_target = 0
 
-    for item in ds_raw:
-        src_ids = tokenizer_src.encode(item['translation'][config['lang_src']]).ids
-        target_ids = tokenizer_target.encode(item['translation'][config['lang_target']]).ids
-        max_len_src = max(max_len_src, len(src_ids))
-        max_len_target = max(max_len_target, len(target_ids))
+    # for item in ds_raw:
+    #     src_ids = tokenizer_src.encode(item['translation'][config['lang_src']]).ids
+    #     target_ids = tokenizer_target.encode(item['translation'][config['lang_target']]).ids
+    #     max_len_src = max(max_len_src, len(src_ids))
+    #     max_len_target = max(max_len_target, len(target_ids))
     
-    print(f"Max length of source sequence: {max_len_src}")
-    print(f"Max length of target sequence: {max_len_target}")
+    # print(f"Max length of source sequence: {max_len_src}")
+    # print(f"Max length of target sequence: {max_len_target}")
 
     train_dataloader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
     val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
@@ -101,14 +164,14 @@ def train_model(config):
         state = torch.load(model_filename)
         initial_epoch = state['epoch']+1
         optimizer.load_state_dict(state['optimizer_state_dict'])
-        global_stop = state['global_step']
+        global_step = state['global_step']
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
     for epoch in range(initial_epoch, config['num_epoches']):
-        model.train()
         batch_iterator = tqdm(train_dataloader, desc=f'Processing epoch {epoch:02d}')
         for batch in batch_iterator:
+            model.train()
             
             encoder_input = batch['encoder_input'].to(device)
             decoder_input = batch['decoder_input'].to(device)
@@ -132,6 +195,8 @@ def train_model(config):
 
             optimizer.step()
             optimizer.zero_grad()
+            if global_step%100 == 0:
+                run_validation(model, val_dataloader, tokenizer_src, tokenizer_target, config['seq_len'], device, lambda msg: batch_iterator.write(msg), global_step, writer)
 
             global_step+=1
    

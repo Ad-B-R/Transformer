@@ -93,16 +93,16 @@ class MultiHeadAttention(nn.Module):
         return (attention_scores @ value), attention_scores
 
 
-    def forward(self, k, q, v, mask):
+    def forward(self, q, k, v, mask):
         # batch, seq len, d_model
         query = self.Wq(q)
         value = self.Wv(v)
         key = self.Wk(k)
         # batch, seq_len, h, d_k -> batch, h, seq_len, d_k
-        query = query.view(query.shape[0], query.shape[1], self.h, self.d_k).transpose(1,2)
-        key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).transpose(1,2)
+        query = query.view(query.shape[0], -1, self.h, self.d_k).transpose(1,2)
+        key = key.view(key.shape[0], -1, self.h, self.d_k).transpose(1,2)
         # key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).permute([0,2,1,3])
-        value = value.view(value.shape[0], value.shape[1], self.h, self.d_k).transpose(1,2)
+        value = value.view(value.shape[0], -1, self.h, self.d_k).transpose(1,2)
 
         # (batch, h, seq_len, d_k) 
         x, self.attention_scores = MultiHeadAttention.attention(query, key, value, mask, self.dropout)
